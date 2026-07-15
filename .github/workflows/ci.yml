@@ -1,0 +1,93 @@
+name: CI
+
+# Runs on every push and pull request. No cloud credentials required — this is
+# the fast feedback gate (unit tests + Terraform validation, linting, security scan).
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit, not just HEAD
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  app-test:
+    name: App · test & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build & package artifact
+        run: |
+          rm -rf node_modules
+          zip -r ../app-${{ github.sha }}.zip . -x '*.git*'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: app-${{ github.sha }}
+          path: app-${{ github.sha }}.zip
+          retention-days: 7
+
+  terraform-checks:
+    name: Terraform · fmt / validate / lint / scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/environments/prod
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive ../../
+
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: TFLint
+        run: tflint --recursive --chdir ../../
+
+      - name: tfsec security scan
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: infra
+          soft_fail: true

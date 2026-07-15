@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (gitignored) and fill in, or export TF_VAR_* env vars.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+alert_email     = "you@example.com"
+
+# Region, SKUs, DB sizing, retention, and alerts are configured in locals.tf

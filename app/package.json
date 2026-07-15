@@ -1,0 +1,17 @@
+{
+  "name": "hello-azure-appservice",
+  "version": "1.0.0",
+  "description": "Minimal Node.js web app for the Azure DevOps challenge — Hello World + /healthz + Azure SQL read.",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mssql": "^11.0.1"
+  }
+}

@@ -1,0 +1,89 @@
+name: Rollback
+
+# Manual rollback: redeploy a previous commit by its (short or full) SHA.
+# Rebuilds that exact commit and redeploys it to App Service — no slot swap
+# needed (deployment slots require Standard tier; see docs/ROLLBACK_DR.md).
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Commit SHA to roll back to (short or full)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  rollback:
+    name: Redeploy ${{ inputs.target_sha }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install & test
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+
+      - name: Prepare deployment package
+        working-directory: app
+        run: rm -rf node_modules
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Stamp rolled-back commit SHA
+        env:
+          SUB: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP: ${{ vars.AZURE_WEBAPP_NAME }}
+          SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          # The runner's Azure CLI requests an unsupported Microsoft.Web
+          # api-version for `az webapp config appsettings set`, so go straight
+          # to ARM with a pinned, supported version: read the current settings,
+          # merge APP_COMMIT_SHA, write the full set back.
+          BASE="https://management.azure.com/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Web/sites/$APP/config/appsettings"
+          API="2024-11-01"
+          az rest --method POST --url "$BASE/list?api-version=$API" --query properties -o json > cur.json
+          jq -n --slurpfile p cur.json --arg sha "$SHA" \
+            '{properties: ($p[0] + {APP_COMMIT_SHA: $sha})}' > put.json
+          az rest --method PUT --url "$BASE?api-version=$API" \
+            --headers Content-Type=application/json --body @put.json --output none
+
+      - name: Deploy rolled-back build
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: app
+
+      - name: Smoke test /healthz
+        run: |
+          URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net/healthz"
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)
+            if [ "$code" = "200" ]; then echo "healthy"; exit 0; fi
+            echo "attempt $i: HTTP $code — retrying in 15s"; sleep 15
+          done
+          echo "health check failed"; exit 1
