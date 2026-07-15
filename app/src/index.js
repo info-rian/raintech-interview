@@ -18,7 +18,7 @@ function createApp() {
   app.get('/', async (req, res) => {
     const database = await getDbInfo();
     res.status(200).json({
-      message: 'Rian Septiana - Raintech DevOps Engineer Technical test!!👋',
+      message: 'Rian Septiana - Raintech DevOps Engineer Technical test - back to F1 👋',
       environment: process.env.APP_ENVIRONMENT || 'unknown',
       commit: process.env.APP_COMMIT_SHA || 'dev',
       database,
