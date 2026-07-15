@@ -21,7 +21,7 @@ locals {
   # ---- App Service ----------------------------------------------------------
   # Plan name = {project}-{env}-plan-01; app name = local.app_name
   app = {
-    service_plan_sku  = "F1"
+    service_plan_sku  = "B1"
     node_version      = "24-lts"
     health_check_path = "/healthz"
   }
